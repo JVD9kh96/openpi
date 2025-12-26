@@ -362,9 +362,11 @@ def train_loop(config: _config.TrainConfig):
 
     # Pass the original batch size to data loader - it will handle DDP splitting internally
     loader, data_config = build_datasets(config)
+    logging.info(f"dataloader built successfully")
 
     # Log sample images to wandb on first batch
     if is_main and config.wandb_enabled and not resuming:
+        logging.info(f"Create a separate data loader for sample batch to avoid consuming the main loader")
         # Create a separate data loader for sample batch to avoid consuming the main loader
         sample_data_loader = _data.create_data_loader(config, framework="pytorch", shuffle=False)
         sample_batch = next(iter(sample_data_loader))
