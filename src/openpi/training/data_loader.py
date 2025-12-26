@@ -311,7 +311,7 @@ def create_data_loader(
             skip_norm_stats=skip_norm_stats,
             framework=framework,
         )
-    return create_torch_1data_loader(
+    return create_torch_data_loader(
         data_config,
         model_config=config.model,
         action_horizon=config.model.action_horizon,
