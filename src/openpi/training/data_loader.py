@@ -184,13 +184,15 @@ def create_torch_dataset(
                 dataset = BehaviorLeRobotDataset(
                     repo_id,
                     root=behavior_root,
+                    tasks=["turning_on_radio"],
+                    modalities=["rgb"],
                     local_only=True,
                     delta_timestamps={
-                        key: [t / lerobot_dataset.LeRobotDatasetMetadata(repo_id).fps for t in range(action_horizon)]
-                        for key in data_config.action_sequence_keys
-                    },
+                                        key: [t / 30.0 for t in range(action_horizon)] for key in data_config.action_sequence_keys
+                                    },
                     episodes=data_config.episodes_index,
-                )
+                    chunk_streaming_using_keyframe=True,
+                    shuffle=True)
                 tried.append("BehaviorLeRobotDataset with local root")
             except Exception as e:
                 tried.append(f"BehaviorLeRobotDataset attempt failed: {e!s}")
