@@ -154,26 +154,59 @@ def create_behavior_dataset(data_config: _config.DataConfig, action_horizon: int
 def create_torch_dataset(
     data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
 ) -> Dataset:
-    """Create a dataset for training."""
+    """Create a dataset for training, preferring local behavior root when available."""
     repo_id = data_config.repo_id
     if repo_id is None:
         raise ValueError("Repo ID is not set. Cannot create dataset.")
     if repo_id == "fake":
         return FakeDataset(model_config, num_samples=1024)
 
+    # Metadata (used for fps etc.)
     dataset_meta = lerobot_dataset.LeRobotDatasetMetadata(repo_id)
-    dataset = lerobot_dataset.LeRobotDataset(
-        data_config.repo_id,
-        delta_timestamps={
-            key: [t / dataset_meta.fps for t in range(action_horizon)] for key in data_config.action_sequence_keys
-        },
-        episodes=data_config.episodes_index,
-    )
+
+    # Precompute delta timestamps
+    delta_ts = {
+        key: [t / dataset_meta.fps for t in range(action_horizon)]
+        for key in data_config.action_sequence_keys
+    }
+
+    # Prepare arguments for the constructor
+    ctor_kwargs = {
+        "delta_timestamps": delta_ts,
+        "episodes": data_config.episodes_index,
+    }
+
+    # If a local behavior root is provided and exists, prefer it and force local_only
+    behavior_root = getattr(data_config, "behavior_dataset_root", None)
+    if behavior_root:
+        if os.path.exists(behavior_root):
+            logging.info(f"Found local behavior_dataset_root at {behavior_root}; using local_only=True")
+            ctor_kwargs["root"] = behavior_root
+            ctor_kwargs["local_only"] = True
+        else:
+            logging.info(f"behavior_dataset_root provided but path does not exist: {behavior_root}; falling back to repo id")
+
+    # Try to construct dataset with the safest (keyword) call; if the installed API doesn't accept
+    # these kwargs, fall back to the older/positional signature to preserve compatibility.
+    try:
+        dataset = lerobot_dataset.LeRobotDataset(repo_id, **ctor_kwargs)
+    except TypeError:
+        logging.warning(
+            "LeRobotDataset constructor rejected kwargs (root/local_only). "
+            "Falling back to positional/legacy constructor call."
+        )
+        # Legacy call (same as original code) — will attempt remote download if no local routing exists.
+        dataset = lerobot_dataset.LeRobotDataset(
+            data_config.repo_id,
+            delta_timestamps=delta_ts,
+            episodes=data_config.episodes_index,
+        )
 
     if data_config.prompt_from_task:
         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
 
     return dataset
+
 
 
 def create_rlds_dataset(
@@ -278,7 +311,7 @@ def create_data_loader(
             skip_norm_stats=skip_norm_stats,
             framework=framework,
         )
-    return create_torch_data_loader(
+    return create_torch_1data_loader(
         data_config,
         model_config=config.model,
         action_horizon=config.model.action_horizon,
