@@ -269,50 +269,50 @@ def create_torch_dataset(
     logging.info("Successfully constructed dataset. Attempts summary:\n  " + "\n  ".join(tried))
 
     # Wrap transforms if needed
-    if data_config.prompt_from_task:
-        try:
-            logging.info("prompt_from_task was True, trying to transform according to data_config")
-            # 1) Prefer tasks from the already-constructed dataset (no hub I/O).
-            tasks=["turning_on_radio"]
+    # if data_config.prompt_from_task:
+    #     try:
+    #         logging.info("prompt_from_task was True, trying to transform according to data_config")
+    #         # 1) Prefer tasks from the already-constructed dataset (no hub I/O).
+    #         tasks=["turning_on_radio"]
 
-            # Many loader classes expose metadata as `.meta` and the tasks list as `.meta.tasks`
-            # meta_obj = getattr(dataset, "meta", None)
-            # if meta_obj is not None:
-            #     tasks = getattr(meta_obj, "tasks", None)
+    #         # Many loader classes expose metadata as `.meta` and the tasks list as `.meta.tasks`
+    #         # meta_obj = getattr(dataset, "meta", None)
+    #         # if meta_obj is not None:
+    #         #     tasks = getattr(meta_obj, "tasks", None)
 
-            # Some variants may expose metadata under other attribute names.
-            if tasks is None:
-                for attr in ("metadata", "dataset_meta", "dataset_metadata"):
-                    meta_obj = getattr(dataset, attr, None)
-                    if meta_obj is not None:
-                        tasks = getattr(meta_obj, "tasks", None)
-                        if tasks is not None:
-                            break
+    #         # Some variants may expose metadata under other attribute names.
+    #         if tasks is None:
+    #             for attr in ("metadata", "dataset_meta", "dataset_metadata"):
+    #                 meta_obj = getattr(dataset, attr, None)
+    #                 if meta_obj is not None:
+    #                     tasks = getattr(meta_obj, "tasks", None)
+    #                     if tasks is not None:
+    #                         break
 
-            # 2) If we built dataset_meta earlier (only true for LeRobotDataset path), use it
-            if tasks is None and "dataset_meta" in locals() and dataset_meta is not None:
-                tasks = getattr(dataset_meta, "tasks", None)
+    #         # 2) If we built dataset_meta earlier (only true for LeRobotDataset path), use it
+    #         if tasks is None and "dataset_meta" in locals() and dataset_meta is not None:
+    #             tasks = getattr(dataset_meta, "tasks", None)
 
-            # 3) Final sanity check and apply transform if we have a tasks list
-            if tasks is None:
-                logging.warning(
-                    "Could not find `tasks` on the constructed dataset or cached metadata. "
-                    "Skipping PromptFromLeRobotTask transform to avoid further I/O."
-                )
-            else:
-                # Ensure it's a plain list/tuple
-                if not isinstance(tasks, (list, tuple)):
-                    try:
-                        tasks = list(tasks)
-                    except Exception:
-                        logging.warning("Could not coerce tasks to a list; skipping PromptFromLeRobotTask transform.")
-                        tasks = None
+    #         # 3) Final sanity check and apply transform if we have a tasks list
+    #         if tasks is None:
+    #             logging.warning(
+    #                 "Could not find `tasks` on the constructed dataset or cached metadata. "
+    #                 "Skipping PromptFromLeRobotTask transform to avoid further I/O."
+    #             )
+    #         else:
+    #             # Ensure it's a plain list/tuple
+    #             if not isinstance(tasks, (list, tuple)):
+    #                 try:
+    #                     tasks = list(tasks)
+    #                 except Exception:
+    #                     logging.warning("Could not coerce tasks to a list; skipping PromptFromLeRobotTask transform.")
+    #                     tasks = None
 
-                if tasks:
-                    dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(tasks)])
-                    logging.info("Attached PromptFromLeRobotTask transform using dataset-provided tasks.")
-        except Exception as e:
-            logging.warning(f"Error while attaching PromptFromLeRobotTask transform (skipping): {e!s}")
+    #             if tasks:
+    #                 dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(tasks)])
+    #                 logging.info("Attached PromptFromLeRobotTask transform using dataset-provided tasks.")
+    #     except Exception as e:
+    #         logging.warning(f"Error while attaching PromptFromLeRobotTask transform (skipping): {e!s}")
     logging.info("finished creating torch dataset")
     return dataset
 
