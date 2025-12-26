@@ -17,6 +17,7 @@ import tyro
 import openpi.models.model as _model
 import openpi.models.pi0_config as pi0_config
 import openpi.models.pi0_fast as pi0_fast
+import openpi.models.pi1_config as pi1_config
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
@@ -744,6 +745,30 @@ _CONFIGS = [
         assets_base_dir="./outputs/assets",
         checkpoint_base_dir="./outputs/checkpoints",
         num_workers=1,
+    ),
+
+    TrainConfig(
+        name="pi1_b1k",
+        exp_name="openpi",
+        project_name="B1K",
+        model=pi1_config.Pi1Config(action_horizon=50),
+        data=LeRobotB1KDataConfig(
+            repo_id="behavior-1k/2025-challenge-demos",
+            base_config=DataConfig(
+                prompt_from_task=True,
+                episodes_index=list(range(190)),
+                behavior_dataset_root="/vision/group/behavior/2025-challenge-demos",
+            ),
+        ),
+        num_train_steps=50_000,
+        freeze_filter=pi1_config.Pi1Config(action_horizon=50).get_freeze_filter(),
+        ema_decay=None,
+        val_log_interval=2500,
+        val_repo_id="behavior-1k/2025-challenge-demos",
+        val_episodes_index=list(range(190, 200)),
+        assets_base_dir="./outputs/assets",
+        checkpoint_base_dir="./outputs/checkpoints",
+        num_workers=min(32, os.cpu_count() - 2),
     ),
     
     #
