@@ -4,7 +4,7 @@ import multiprocessing
 import os
 import typing
 from typing import Literal, Protocol, SupportsIndex, TypeVar
-
+import inspect
 import jax
 import jax.numpy as jnp
 import lerobot.datasets.lerobot_dataset as lerobot_dataset
@@ -154,7 +154,12 @@ def create_behavior_dataset(data_config: _config.DataConfig, action_horizon: int
 def create_torch_dataset(
     data_config: _config.DataConfig, action_horizon: int, model_config: _model.BaseModelConfig
 ) -> Dataset:
-    """Create a dataset for training, preferring local behavior root when available."""
+    """Create a dataset for training. Prefer using local behavior_dataset_root when available.
+
+    This function tries multiple constructor styles for lerobot_dataset.LeRobotDataset so it works
+    across different installed versions. It also sets HF offline env vars while attempting local loads
+    to prevent unwanted downloads.
+    """
     repo_id = data_config.repo_id
     if repo_id is None:
         raise ValueError("Repo ID is not set. Cannot create dataset.")
@@ -170,37 +175,79 @@ def create_torch_dataset(
         for key in data_config.action_sequence_keys
     }
 
-    # Prepare arguments for the constructor
-    ctor_kwargs = {
-        "delta_timestamps": delta_ts,
-        "episodes": data_config.episodes_index,
-    }
+    # Prepare common kwargs
+    common_kwargs = {"delta_timestamps": delta_ts, "episodes": data_config.episodes_index}
 
-    # If a local behavior root is provided and exists, prefer it and force local_only
+    # Where to look locally
     behavior_root = getattr(data_config, "behavior_dataset_root", None)
-    if behavior_root:
-        if os.path.exists(behavior_root):
-            logging.info(f"Found local behavior_dataset_root at {behavior_root}; using local_only=True")
-            ctor_kwargs["root"] = behavior_root
-            ctor_kwargs["local_only"] = True
-        else:
-            logging.info(f"behavior_dataset_root provided but path does not exist: {behavior_root}; falling back to repo id")
 
-    # Try to construct dataset with the safest (keyword) call; if the installed API doesn't accept
-    # these kwargs, fall back to the older/positional signature to preserve compatibility.
+    # Temporarily set HF offline to avoid downloads while we probe constructors
+    prev_hf_offline = os.environ.get("HF_HUB_OFFLINE")
+    prev_hf_data_offline = os.environ.get("HF_DATASETS_OFFLINE")
+    os.environ["HF_HUB_OFFLINE"] = "1"
+    os.environ["HF_DATASETS_OFFLINE"] = "1"
+
+    tried = []
+    dataset = None
+
     try:
-        dataset = lerobot_dataset.LeRobotDataset(repo_id, **ctor_kwargs)
-    except TypeError:
-        logging.warning(
-            "LeRobotDataset constructor rejected kwargs (root/local_only). "
-            "Falling back to positional/legacy constructor call."
+        ctor = lerobot_dataset.LeRobotDataset
+        sig = None
+        try:
+            sig = inspect.signature(ctor)
+            params = set(sig.parameters.keys())
+        except Exception:
+            params = set()
+
+        # Strategy 1: If we have a local root, try keyword args (most likely for modern APIs)
+        if behavior_root and os.path.exists(behavior_root):
+            if "root" in params or "local_only" in params:
+                try:
+                    logging.info("Attempting LeRobotDataset(repo_id, root=..., local_only=True, ...)")
+                    dataset = ctor(repo_id, root=behavior_root, local_only=True, **common_kwargs)
+                    tried.append("repo_id + root kw + local_only kw")
+                except TypeError as e:
+                    tried.append(f"repo_id + root kw (failed): {e!s}")
+
+            # Strategy 2: try positional root-first (some versions accept root as first arg)
+            if dataset is None:
+                try:
+                    logging.info("Attempting LeRobotDataset(behavior_root, delta_timestamps=..., episodes=...)")
+                    dataset = ctor(behavior_root, **common_kwargs)
+                    tried.append("root as first positional arg")
+                except TypeError as e:
+                    tried.append(f"root positional (failed): {e!s}")
+
+        # Strategy 3: the canonical legacy call (repo id) — may download if remote required
+        if dataset is None:
+            try:
+                logging.info("Falling back to LeRobotDataset(repo_id, delta_timestamps=..., episodes=...)")
+                dataset = ctor(repo_id, **common_kwargs)
+                tried.append("repo_id legacy call")
+            except TypeError as e:
+                tried.append(f"repo_id legacy (failed): {e!s}")
+
+    finally:
+        # restore HF env vars
+        if prev_hf_offline is None:
+            os.environ.pop("HF_HUB_OFFLINE", None)
+        else:
+            os.environ["HF_HUB_OFFLINE"] = prev_hf_offline
+
+        if prev_hf_data_offline is None:
+            os.environ.pop("HF_DATASETS_OFFLINE", None)
+        else:
+            os.environ["HF_DATASETS_OFFLINE"] = prev_hf_data_offline
+
+    # If dataset still None, raise a helpful error describing attempts
+    if dataset is None:
+        logging.error("Failed to construct LeRobotDataset. Attempts:\n  " + "\n  ".join(tried))
+        raise RuntimeError(
+            "Could not construct LeRobotDataset with any of the tried signatures. "
+            "Please inspect omnigibson.learning.datas.lerobot_dataset.LeRobotDataset constructor signature."
         )
-        # Legacy call (same as original code) — will attempt remote download if no local routing exists.
-        dataset = lerobot_dataset.LeRobotDataset(
-            data_config.repo_id,
-            delta_timestamps=delta_ts,
-            episodes=data_config.episodes_index,
-        )
+
+    logging.info(f"LeRobotDataset constructed using strategy; attempts: {tried}")
 
     if data_config.prompt_from_task:
         dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
