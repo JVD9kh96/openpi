@@ -272,11 +272,12 @@ def create_torch_dataset(
     if data_config.prompt_from_task:
         # dataset_meta may be None if metadata call failed earlier; try to get tasks safely
         try:
+            logging.info("prompt_from_task was True, trying to transform according to data_config")
             dataset_meta = dataset_meta if 'dataset_meta' in locals() and dataset_meta is not None else lerobot_dataset.LeRobotDatasetMetadata(repo_id)
             dataset = TransformedDataset(dataset, [_transforms.PromptFromLeRobotTask(dataset_meta.tasks)])
         except Exception:
             logging.warning("Could not attach PromptFromLeRobotTask transform due to missing metadata/tasks.")
-
+    logging.info("finished creating torch dataset")
     return dataset
 
 
@@ -455,7 +456,7 @@ def create_torch_data_loader(
     """
     dataset = create_torch_dataset(data_config, action_horizon, model_config)
     dataset = transform_dataset(dataset, data_config, skip_norm_stats=skip_norm_stats)
-
+    logging.info(f"dataset transformed successfully")
     # Use TorchDataLoader for both frameworks
     # For PyTorch DDP, create DistributedSampler and divide batch size by world size
     # For JAX, divide by process count
