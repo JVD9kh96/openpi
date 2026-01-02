@@ -52,7 +52,12 @@ def create_trained_policy(
     logging.info("Loading model...")
     if is_pytorch:
         model = train_config.model.load_pytorch(train_config, weight_path)
-        model.paligemma_with_expert.to_bfloat16_for_selected_params("bfloat16")
+        # Only call bfloat16 conversion for PI0 models (which have paligemma_with_expert)
+        # PI1 models use dino_with_expert instead
+        if hasattr(model, "paligemma_with_expert"):
+            model.paligemma_with_expert.to_bfloat16_for_selected_params("bfloat16")
+        # elif hasattr(model, "dino_with_expert"):
+        #     model.dino_with_expert
     else:
         model = train_config.model.load(_model.restore_params(checkpoint_dir / "params", dtype=jnp.bfloat16))
     data_config = train_config.data.create(train_config.assets_dirs, train_config.model)

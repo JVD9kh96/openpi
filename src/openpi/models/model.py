@@ -18,6 +18,7 @@ import safetensors
 import torch
 
 from openpi.models_pytorch import pi0_pytorch
+from openpi.models_pytorch import pi1_pytorch
 from openpi.shared import image_tools
 import openpi.shared.array_typing as at
 
@@ -242,7 +243,14 @@ class BaseModelConfig(abc.ABC):
 
     def load_pytorch(self, train_config, weight_path: str):
         logger.info(f"train_config: {train_config}")
-        model = pi0_pytorch.PI0Pytorch(config=train_config.model)
+        # Check if this is a Pi1Config (uses DINOv2) or Pi0Config (uses PaliGemma)
+        # Pi1Config doesn't have paligemma_variant attribute, so we can check for that
+        if hasattr(train_config.model, "paligemma_variant"):
+            # Pi0Config - uses PaliGemma
+            model = pi0_pytorch.PI0Pytorch(config=train_config.model)
+        else:
+            # Pi1Config - uses DINOv2
+            model = pi1_pytorch.PI1Pytorch(config=train_config.model)
         safetensors.torch.load_model(model, weight_path)
         return model
 
