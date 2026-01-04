@@ -45,6 +45,7 @@ def setup_and_run_evaluation(
     write_video: bool = False,
     log_path: str = "./eval_logs",
     robot_controllers: Optional[dict] = None,
+    additional_paths: Optional[list[str]] = None,
 ) -> dict:
     """
     Complete setup and run evaluation without websockets.
@@ -66,6 +67,7 @@ def setup_and_run_evaluation(
         write_video: Whether to write videos
         log_path: Path to save logs and metrics
         robot_controllers: Optional robot controller config
+        additional_paths: Additional paths to add to sys.path (e.g., path to gello repository)
         
     Returns:
         Dictionary with evaluation results
@@ -75,6 +77,29 @@ def setup_and_run_evaluation(
     if str(behavior_repo_path) not in sys.path:
         sys.path.insert(0, str(behavior_repo_path))
         logger.info(f"Added {behavior_repo_path} to sys.path")
+    
+    # Add additional paths (e.g., gello)
+    if additional_paths:
+        for path in additional_paths:
+            path = Path(path).resolve()
+            if str(path) not in sys.path:
+                sys.path.insert(0, str(path))
+                logger.info(f"Added {path} to sys.path")
+    
+    # Try common locations for gello if not already in path
+    gello_in_path = any("gello" in str(p).lower() for p in sys.path)
+    if not gello_in_path:
+        common_gello_locations = [
+            behavior_repo_path.parent / "gello",
+            behavior_repo_path / "gello",
+            Path("/kaggle/working/gello"),
+            Path("/kaggle/input/gello"),
+        ]
+        for gello_path in common_gello_locations:
+            if gello_path.exists() and str(gello_path) not in sys.path:
+                sys.path.insert(0, str(gello_path))
+                logger.info(f"Found and added gello at {gello_path} to sys.path")
+                break
     
     # Import after adding to path
     try:
@@ -89,6 +114,16 @@ def setup_and_run_evaluation(
         from inspect import getsourcefile
         import torch as th
     except ImportError as e:
+        error_msg = str(e)
+        if "gello" in error_msg.lower():
+            raise ImportError(
+                f"Failed to import 'gello' module. {error_msg}\n"
+                f"Please either:\n"
+                f"  1. Install gello: pip install gello\n"
+                f"  2. Clone gello repository and add its path using additional_paths parameter\n"
+                f"  3. If gello is in a standard location, update the script to find it\n"
+                f"Current sys.path: {sys.path[:5]}..."
+            )
         raise ImportError(
             f"Failed to import required modules. Make sure behavior_repo_path is correct: {e}"
         )

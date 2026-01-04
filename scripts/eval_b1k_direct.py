@@ -54,6 +54,7 @@ class DirectB1KEvaluator:
         dataset_root: Optional[str] = None,
         default_prompt: Optional[str] = None,
         pytorch_device: Optional[str] = None,
+        additional_paths: Optional[list[str]] = None,
     ):
         """
         Initialize the direct evaluator.
@@ -66,6 +67,7 @@ class DirectB1KEvaluator:
             dataset_root: Root directory for dataset (default: "/scr/behavior/2025-challenge-demos")
             default_prompt: Default prompt to use (will be retrieved from dataset if not provided)
             pytorch_device: Device for PyTorch (default: "cuda" if available, else "cpu")
+            additional_paths: Additional paths to add to sys.path (e.g., path to gello repository)
         """
         # Add behavior repo to path
         behavior_repo_path = Path(behavior_repo_path).resolve()
@@ -73,12 +75,45 @@ class DirectB1KEvaluator:
             sys.path.insert(0, str(behavior_repo_path))
             logger.info(f"Added {behavior_repo_path} to sys.path")
         
+        # Add additional paths (e.g., gello)
+        if additional_paths:
+            for path in additional_paths:
+                path = Path(path).resolve()
+                if str(path) not in sys.path:
+                    sys.path.insert(0, str(path))
+                    logger.info(f"Added {path} to sys.path")
+        
+        # Try common locations for gello if not already in path
+        gello_in_path = any("gello" in str(p).lower() for p in sys.path)
+        if not gello_in_path:
+            common_gello_locations = [
+                behavior_repo_path.parent / "gello",
+                behavior_repo_path / "gello",
+                Path("/kaggle/working/gello"),
+                Path("/kaggle/input/gello"),
+            ]
+            for gello_path in common_gello_locations:
+                if gello_path.exists() and str(gello_path) not in sys.path:
+                    sys.path.insert(0, str(gello_path))
+                    logger.info(f"Found and added gello at {gello_path} to sys.path")
+                    break
+        
         # Import OmniGibson modules after adding to path
         try:
             from omnigibson.learning.datas import BehaviorLerobotDatasetMetadata
             from omnigibson.learning.eval import Evaluator
             from omnigibson.macros import gm
         except ImportError as e:
+            error_msg = str(e)
+            if "gello" in error_msg.lower():
+                raise ImportError(
+                    f"Failed to import 'gello' module. {error_msg}\n"
+                    f"Please either:\n"
+                    f"  1. Install gello: pip install gello\n"
+                    f"  2. Clone gello repository and add its path using --additional_paths\n"
+                    f"  3. If gello is in a standard location, update the script to find it\n"
+                    f"Current sys.path: {sys.path[:5]}..."
+                )
             raise ImportError(
                 f"Failed to import OmniGibson modules. Make sure behavior_repo_path is correct: {e}"
             )
@@ -236,6 +271,13 @@ def main():
         default=None,
         help="PyTorch device (default: 'cuda' if available, else 'cpu')",
     )
+    parser.add_argument(
+        "--additional_paths",
+        type=str,
+        nargs="+",
+        default=None,
+        help="Additional paths to add to sys.path (e.g., path to gello repository)",
+    )
     
     # Evaluation config arguments (these would be passed to the evaluator)
     # Add more as needed based on the evaluator's requirements
@@ -254,6 +296,7 @@ def main():
         dataset_root=args.dataset_root,
         default_prompt=args.default_prompt,
         pytorch_device=args.pytorch_device,
+        additional_paths=args.additional_paths,
     )
     
     logger.info("Direct evaluator created successfully!")
