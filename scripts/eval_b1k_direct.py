@@ -374,8 +374,9 @@ def setup_and_run_evaluation(
     
     # Initialize Hydra
     with hydra.initialize_config_dir(str(eval_config_dir), version_base="1.1"):
-        # Compose base config
-        eval_config = hydra.compose("base_config.yaml")
+        # Compose base config with policy=local override
+        # We use "local" policy config and then replace it with our direct policy
+        eval_config = hydra.compose("base_config.yaml", overrides=["policy=local"])
         OmegaConf.resolve(eval_config)
     
     # Override config values
@@ -390,16 +391,28 @@ def setup_and_run_evaluation(
     if eval_instance_ids is not None:
         eval_config.eval_instance_ids = eval_instance_ids
     
-    # Create a policy config that returns our direct policy
-    class DirectPolicyConfig:
-        def __init__(self, policy):
-            self.policy = policy
+    # Replace the model config to use our direct policy
+    # The LocalPolicy expects a policy attribute, so we create a wrapper
+    # that will set the policy after instantiation
+    original_model_cfg = eval_config.model
+    
+    # Create a config that will instantiate LocalPolicy and set our direct policy
+    class DirectPolicyModelConfig:
+        def __init__(self, direct_policy):
+            self.direct_policy = direct_policy
+            # Keep the original config structure for compatibility
+            self._target_ = "omnigibson.learning.policies.LocalPolicy"
+            self.action_dim = 23
         
         def __call__(self, *args, **kwargs):
-            return self.policy
+            # Instantiate LocalPolicy first
+            from omnigibson.learning.policies import LocalPolicy
+            local_policy = LocalPolicy(action_dim=23)
+            # Set our direct policy as the policy attribute
+            local_policy.policy = self.direct_policy
+            return local_policy
     
-    # Replace the model config with our direct policy
-    eval_config.model = DirectPolicyConfig(direct_policy)
+    eval_config.model = DirectPolicyModelConfig(direct_policy)
     
     # Create evaluator
     logger.info("Creating evaluator...")
