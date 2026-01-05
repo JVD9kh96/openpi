@@ -351,14 +351,25 @@ def setup_and_run_evaluation(
     
     # Create evaluator config
     # We need to find the config directory from the behavior repo
-    eval_config_dir = Path(behavior_repo_path) / "omnigibson" / "learning" / "configs"
-    if not eval_config_dir.exists():
-        # Try alternative location
-        eval_config_dir = Path(behavior_repo_path) / "behavior" / "OmniGibson" / "omnigibson" / "learning" / "configs"
+    # Try multiple possible locations
+    possible_paths = [
+        Path(behavior_repo_path) / "OmniGibson" / "omnigibson" / "learning" / "configs",
+        Path(behavior_repo_path) / "omnigibson" / "learning" / "configs",
+        Path(behavior_repo_path) / "behavior" / "OmniGibson" / "omnigibson" / "learning" / "configs",
+    ]
     
-    if not eval_config_dir.exists():
+    eval_config_dir = None
+    for path in possible_paths:
+        if path.exists():
+            eval_config_dir = path
+            logger.info(f"Found config directory at: {eval_config_dir}")
+            break
+    
+    if eval_config_dir is None:
+        tried_paths = "\n  - ".join([str(p) for p in possible_paths])
         raise FileNotFoundError(
-            f"Could not find evaluator config directory. Tried: {eval_config_dir}"
+            f"Could not find evaluator config directory. Tried:\n  - {tried_paths}\n"
+            f"Please check that the behavior_repo_path is correct and contains OmniGibson."
         )
     
     # Initialize Hydra
