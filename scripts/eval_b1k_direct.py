@@ -304,6 +304,49 @@ def setup_and_run_evaluation(
             f"Failed to import required modules. Make sure behavior_repo_path is correct: {e}"
         )
     
+    # Monkey-patch load_available_tasks to use the correct path
+    # This is needed because when gello is installed via pip, the relative path doesn't work
+    # The file should be at {behavior_repo_path}/joylo/sampled_task/available_tasks.yaml
+    try:
+        from gello.robots.sim_robot import og_teleop_utils
+        import yaml
+        
+        original_load_available_tasks = og_teleop_utils.load_available_tasks
+        
+        def patched_load_available_tasks():
+            """Patched version that looks for available_tasks.yaml in the joylo repository."""
+            # Try multiple possible locations
+            possible_paths = [
+                behavior_repo_path / "joylo" / "sampled_task" / "available_tasks.yaml",
+                Path("/kaggle/working/BEHAVIOR-1K/joylo/sampled_task/available_tasks.yaml"),
+                Path("/kaggle/working/joylo/sampled_task/available_tasks.yaml"),
+            ]
+            
+            # Also try the original path as fallback
+            try:
+                dir_path = os.path.dirname(os.path.abspath(og_teleop_utils.__file__))
+                original_path = os.path.join(dir_path, '..', '..', '..', 'sampled_task', 'available_tasks.yaml')
+                possible_paths.append(Path(original_path).resolve())
+            except:
+                pass
+            
+            for task_cfg_path in possible_paths:
+                if task_cfg_path.exists():
+                    logger.info(f"Loading available_tasks.yaml from: {task_cfg_path}")
+                    with open(task_cfg_path, 'r') as file:
+                        available_tasks = yaml.safe_load(file)
+                    return available_tasks
+            
+            # If none found, try original function
+            logger.warning("Could not find available_tasks.yaml in expected locations, trying original path...")
+            return original_load_available_tasks()
+        
+        # Replace the function
+        og_teleop_utils.load_available_tasks = patched_load_available_tasks
+        logger.info("Patched load_available_tasks to use correct path")
+    except Exception as e:
+        logger.warning(f"Could not patch load_available_tasks: {e}. Will try original function.")
+    
     # Load metadata and get prompt
     dataset_root = dataset_root or "/scr/behavior/2025-challenge-demos"
     metadata = BehaviorLerobotDatasetMetadata(
