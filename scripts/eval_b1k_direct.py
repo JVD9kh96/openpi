@@ -391,32 +391,21 @@ def setup_and_run_evaluation(
     if eval_instance_ids is not None:
         eval_config.eval_instance_ids = eval_instance_ids
     
-    # Replace the model config to use our direct policy
-    # The LocalPolicy expects a policy attribute, so we create a wrapper
-    # that will set the policy after instantiation
-    original_model_cfg = eval_config.model
-    
-    # Create a config that will instantiate LocalPolicy and set our direct policy
-    class DirectPolicyModelConfig:
-        def __init__(self, direct_policy):
-            self.direct_policy = direct_policy
-            # Keep the original config structure for compatibility
-            self._target_ = "omnigibson.learning.policies.LocalPolicy"
-            self.action_dim = 23
-        
-        def __call__(self, *args, **kwargs):
-            # Instantiate LocalPolicy first
-            from omnigibson.learning.policies import LocalPolicy
-            local_policy = LocalPolicy(action_dim=23)
-            # Set our direct policy as the policy attribute
-            local_policy.policy = self.direct_policy
-            return local_policy
-    
-    eval_config.model = DirectPolicyModelConfig(direct_policy)
-    
-    # Create evaluator
+    # Create evaluator with the local policy config
+    # The config will create a LocalPolicy, which we'll then replace with our direct policy
     logger.info("Creating evaluator...")
     evaluator = Evaluator(eval_config)
+    
+    # Replace the policy with our direct policy
+    # LocalPolicy has a 'policy' attribute that we can set
+    # If it's a LocalPolicy, set its policy attribute to our direct policy
+    if hasattr(evaluator.policy, 'policy'):
+        logger.info("Replacing LocalPolicy.policy with direct policy...")
+        evaluator.policy.policy = direct_policy
+    else:
+        # If it's not a LocalPolicy, try to replace the whole policy
+        logger.info("Replacing evaluator policy with direct policy...")
+        evaluator.policy = direct_policy
     
     # Determine instances to run
     from omnigibson.learning.utils.eval_utils import TASK_NAMES_TO_INDICES
