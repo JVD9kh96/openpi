@@ -307,6 +307,7 @@ def setup_and_run_evaluation(
     # Monkey-patch load_available_tasks to use the correct path
     # This is needed because when gello is installed via pip, the relative path doesn't work
     # The file should be at {behavior_repo_path}/joylo/sampled_task/available_tasks.yaml
+    # We need to patch it both in og_teleop_utils AND in the eval module since eval imports it directly
     try:
         from gello.robots.sim_robot import og_teleop_utils
         import yaml
@@ -341,9 +342,12 @@ def setup_and_run_evaluation(
             logger.warning("Could not find available_tasks.yaml in expected locations, trying original path...")
             return original_load_available_tasks()
         
-        # Replace the function
+        # Replace the function in og_teleop_utils
         og_teleop_utils.load_available_tasks = patched_load_available_tasks
-        logger.info("Patched load_available_tasks to use correct path")
+        logger.info("Patched load_available_tasks in og_teleop_utils")
+        
+        # Also patch it in the eval module if it's already imported
+        # We'll do this after importing Evaluator
     except Exception as e:
         logger.warning(f"Could not patch load_available_tasks: {e}. Will try original function.")
     
@@ -433,6 +437,16 @@ def setup_and_run_evaluation(
     eval_config.test_hidden = test_hidden
     if eval_instance_ids is not None:
         eval_config.eval_instance_ids = eval_instance_ids
+    
+    # Patch load_available_tasks in the eval module as well
+    # Since eval.py imports it directly, we need to patch it there too
+    try:
+        from omnigibson.learning import eval as eval_module
+        from gello.robots.sim_robot import og_teleop_utils
+        eval_module.load_available_tasks = og_teleop_utils.load_available_tasks
+        logger.info("Patched load_available_tasks in eval module")
+    except Exception as e:
+        logger.warning(f"Could not patch load_available_tasks in eval module: {e}")
     
     # Create evaluator with the local policy config
     # The config will create a LocalPolicy, which we'll then replace with our direct policy
