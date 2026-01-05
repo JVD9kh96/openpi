@@ -224,6 +224,9 @@ class DirectB1KEvaluator:
 
 def main():
     """Main entry point for command-line usage."""
+    # Import the evaluation function - we'll use it directly
+    from openpi.scripts.eval_b1k_direct_notebook import setup_and_run_evaluation
+    
     parser = argparse.ArgumentParser(description="Direct B1K evaluation without websockets")
     
     # Required arguments
@@ -279,16 +282,61 @@ def main():
         help="Additional paths to add to sys.path (e.g., path to gello repository)",
     )
     
-    # Evaluation config arguments (these would be passed to the evaluator)
-    # Add more as needed based on the evaluator's requirements
+    # Evaluation parameters
+    parser.add_argument(
+        "--eval_instance_ids",
+        type=int,
+        nargs="+",
+        default=None,
+        help="List of instance IDs to evaluate (None = all test instances)",
+    )
+    parser.add_argument(
+        "--eval_on_train_instances",
+        action="store_true",
+        help="Evaluate on training instances instead of test",
+    )
+    parser.add_argument(
+        "--test_hidden",
+        action="store_true",
+        help="Evaluate on hidden test instances",
+    )
+    parser.add_argument(
+        "--max_steps",
+        type=int,
+        default=None,
+        help="Maximum steps per episode (None = auto from human stats)",
+    )
+    parser.add_argument(
+        "--no-partial_scene_load",
+        action="store_true",
+        help="Disable partial scene loading",
+    )
+    parser.add_argument(
+        "--no-headless",
+        action="store_true",
+        help="Run with GUI (not headless)",
+    )
+    parser.add_argument(
+        "--write_video",
+        action="store_true",
+        help="Save evaluation videos",
+    )
+    parser.add_argument(
+        "--log_path",
+        type=str,
+        default="./eval_logs",
+        help="Path to save logs and metrics",
+    )
     
     args = parser.parse_args()
     
     # Set up logging
     logging.basicConfig(level=logging.INFO, force=True)
     
-    # Create evaluator
-    evaluator = DirectB1KEvaluator(
+    logger.info("Starting direct B1K evaluation...")
+    
+    # Run evaluation
+    results = setup_and_run_evaluation(
         behavior_repo_path=args.behavior_repo_path,
         config_name=args.config_name,
         checkpoint_dir=args.checkpoint_dir,
@@ -297,13 +345,25 @@ def main():
         default_prompt=args.default_prompt,
         pytorch_device=args.pytorch_device,
         additional_paths=args.additional_paths,
+        eval_instance_ids=args.eval_instance_ids,
+        eval_on_train_instances=args.eval_on_train_instances,
+        test_hidden=args.test_hidden,
+        max_steps=args.max_steps,
+        partial_scene_load=not args.no_partial_scene_load,
+        headless=not args.no_headless,
+        write_video=args.write_video,
+        log_path=args.log_path,
     )
     
-    logger.info("Direct evaluator created successfully!")
-    logger.info("To run evaluation, use the evaluator in a Jupyter notebook or")
-    logger.info("extend this script to call the OmniGibson evaluator with the policy.")
+    # Print results
+    logger.info("=" * 50)
+    logger.info("Evaluation Results:")
+    logger.info(f"Total trials: {results['total_trials']}")
+    logger.info(f"Total success trials: {results['total_success_trials']}")
+    logger.info(f"Success rate: {results['success_rate']:.2%}")
+    logger.info("=" * 50)
     
-    return evaluator
+    return results
 
 
 if __name__ == "__main__":
