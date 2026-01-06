@@ -436,59 +436,107 @@ def setup_and_run_evaluation(
         if not found_path:
             # If not found, try to detect based on where metadata might be
             # User mentioned data at /vision/group/behavior/2025-challenge-demos/meta/
-            # Set DATA_PATH to /vision/group/behavior and let user create the expected structure
-            if Path("/vision/group/behavior").exists():
-                gm.DATA_PATH = "/vision/group/behavior"
-                logger.info(f"Set gm.DATA_PATH to: {gm.DATA_PATH}")
-                logger.warning(
-                    f"The evaluator expects metadata at: "
-                    f"{gm.DATA_PATH}/2025-challenge-task-instances/metadata/episodes.jsonl\n"
-                    f"If your data is in a different location, you may need to:\n"
-                    f"  1. Create the directory structure: mkdir -p {gm.DATA_PATH}/2025-challenge-task-instances/metadata\n"
-                    f"  2. Copy or symlink your episodes.jsonl file there\n"
-                    f"  3. Or set --data_path to point to where the data actually is"
-                )
+            # Check for this structure
+            demos_meta_paths = [
+                Path("/vision/group/behavior/2025-challenge-demos/meta/episodes.jsonl"),
+                Path("/kaggle/working/2025-challenge-demos/meta/episodes.jsonl"),
+            ]
+            
+            found_demos_meta = False
+            for demos_meta_path in demos_meta_paths:
+                if demos_meta_path.exists():
+                    # Found data in 2025-challenge-demos structure
+                    # Set DATA_PATH to parent (e.g., /vision/group/behavior)
+                    gm.DATA_PATH = str(demos_meta_path.parent.parent.parent)
+                    logger.info(f"Found data in 2025-challenge-demos structure, set gm.DATA_PATH to: {gm.DATA_PATH}")
+                    found_demos_meta = True
+                    break
+            
+            if not found_demos_meta:
+                # Fallback: Set DATA_PATH to /vision/group/behavior if it exists
+                if Path("/vision/group/behavior").exists():
+                    gm.DATA_PATH = "/vision/group/behavior"
+                    logger.info(f"Set gm.DATA_PATH to: {gm.DATA_PATH}")
+                    logger.warning(
+                        f"The evaluator expects metadata at: "
+                        f"{gm.DATA_PATH}/2025-challenge-task-instances/metadata/episodes.jsonl\n"
+                        f"If your data is in a different location, you may need to:\n"
+                        f"  1. Create the directory structure: mkdir -p {gm.DATA_PATH}/2025-challenge-task-instances/metadata\n"
+                        f"  2. Copy or symlink your episodes.jsonl file there\n"
+                        f"  3. Or set --data_path to point to where the data actually is"
+                    )
     
-    # Verify that the expected file exists, and handle "meta" vs "metadata" naming
+    # Verify that the expected file exists, and handle different directory structures
     base_instances_path = Path(gm.DATA_PATH) / "2025-challenge-task-instances"
     expected_episodes_file = base_instances_path / "metadata" / "episodes.jsonl"
     alternative_episodes_file = base_instances_path / "meta" / "episodes.jsonl"
     
+    # Also check for 2025-challenge-demos structure
+    demos_meta_paths = [
+        Path(gm.DATA_PATH) / "2025-challenge-demos" / "meta" / "episodes.jsonl",
+        Path("/vision/group/behavior/2025-challenge-demos/meta/episodes.jsonl"),
+        Path("/kaggle/working/2025-challenge-demos/meta/episodes.jsonl"),
+    ]
+    
+    source_episodes_file = None
+    source_meta_dir = None
+    
     if expected_episodes_file.exists():
         logger.info(f"Found episodes.jsonl at expected location: {expected_episodes_file}")
+        source_episodes_file = expected_episodes_file
+        source_meta_dir = base_instances_path / "metadata"
     elif alternative_episodes_file.exists():
-        # Data is in "meta" but evaluator expects "metadata" - create symlink
         logger.info(f"Found episodes.jsonl at: {alternative_episodes_file}")
-        logger.info("Creating symlink from 'metadata' to 'meta' for evaluator compatibility...")
+        source_episodes_file = alternative_episodes_file
+        source_meta_dir = base_instances_path / "meta"
+    else:
+        # Check for 2025-challenge-demos structure
+        for demos_path in demos_meta_paths:
+            if demos_path.exists():
+                logger.info(f"Found episodes.jsonl in 2025-challenge-demos structure: {demos_path}")
+                source_episodes_file = demos_path
+                source_meta_dir = demos_path.parent
+                break
+    
+    # If we found the file but not in the expected location, create symlinks/copies
+    if source_episodes_file and not expected_episodes_file.exists():
+        logger.info(f"Creating expected directory structure and linking files...")
         try:
             metadata_dir = base_instances_path / "metadata"
-            meta_dir = base_instances_path / "meta"
             
             # Create metadata directory if it doesn't exist
             if not metadata_dir.exists():
                 metadata_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"Created directory: {metadata_dir}")
             
-            # Create symlinks for required files
-            for file_name in ["episodes.jsonl", "test_instances.csv"]:
-                meta_file = meta_dir / file_name
-                metadata_file = metadata_dir / file_name
+            # Create symlinks/copies for required files
+            for file_name in ["episodes.jsonl", "test_instances.csv", "episodes_stats.jsonl"]:
+                source_file = source_meta_dir / file_name
+                target_file = metadata_dir / file_name
                 
-                if meta_file.exists() and not metadata_file.exists():
+                if source_file.exists() and not target_file.exists():
                     # Create symlink (or copy if symlink fails)
                     try:
                         if os.name == 'nt':  # Windows
                             # On Windows, copy instead of symlink
                             import shutil
-                            shutil.copy2(meta_file, metadata_file)
-                            logger.info(f"Copied {file_name} from meta to metadata")
+                            shutil.copy2(source_file, target_file)
+                            logger.info(f"Copied {file_name} to {target_file}")
                         else:
-                            os.symlink(meta_file, metadata_file)
-                            logger.info(f"Created symlink for {file_name}")
+                            # Use relative path for symlink if possible
+                            try:
+                                rel_source = os.path.relpath(source_file, target_file.parent)
+                                os.symlink(rel_source, target_file)
+                                logger.info(f"Created symlink for {file_name} -> {source_file}")
+                            except (ValueError, OSError):
+                                # If relative path doesn't work, use absolute
+                                os.symlink(source_file, target_file)
+                                logger.info(f"Created symlink for {file_name} -> {source_file}")
                     except Exception as e:
                         logger.warning(f"Could not create symlink for {file_name}: {e}. Trying copy...")
                         import shutil
-                        shutil.copy2(meta_file, metadata_file)
-                        logger.info(f"Copied {file_name} from meta to metadata")
+                        shutil.copy2(source_file, target_file)
+                        logger.info(f"Copied {file_name} to {target_file}")
             
             # Verify the symlink/copy worked
             if expected_episodes_file.exists():
@@ -496,12 +544,18 @@ def setup_and_run_evaluation(
             else:
                 logger.warning(f"Could not create expected file at: {expected_episodes_file}")
         except Exception as e:
-            logger.warning(f"Could not create symlink/copy from meta to metadata: {e}")
-    else:
+            logger.warning(f"Could not create symlink/copy: {e}")
+            import traceback
+            logger.debug(traceback.format_exc())
+    
+    # Final check
+    if not expected_episodes_file.exists():
         logger.warning(
-            f"Expected episodes.jsonl not found at either:\n"
+            f"Expected episodes.jsonl not found at: {expected_episodes_file}\n"
+            f"Checked locations:\n"
             f"  - {expected_episodes_file}\n"
             f"  - {alternative_episodes_file}\n"
+            f"  - {demos_meta_paths[0]}\n"
             f"This file is required for evaluation. Please ensure it exists or set --data_path correctly."
         )
     
