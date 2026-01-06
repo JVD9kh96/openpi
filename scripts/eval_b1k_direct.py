@@ -239,6 +239,7 @@ def setup_and_run_evaluation(
     write_video: bool = False,
     log_path: str = "./eval_logs",
     additional_paths: Optional[list[str]] = None,
+    data_path: Optional[str] = None,
 ) -> dict:
     """
     Complete setup and run evaluation without websockets.
@@ -392,6 +393,59 @@ def setup_and_run_evaluation(
     gm.USE_GPU_DYNAMICS = False
     gm.ENABLE_TRANSITION_RULES = True
     gm.HEADLESS = headless
+    
+    # Override DATA_PATH if provided or try to find it automatically
+    # The evaluator expects: {DATA_PATH}/2025-challenge-task-instances/metadata/episodes.jsonl
+    if data_path:
+        data_path_obj = Path(data_path).resolve()
+        if data_path_obj.exists():
+            gm.DATA_PATH = str(data_path_obj)
+            logger.info(f"Set gm.DATA_PATH to: {gm.DATA_PATH}")
+        else:
+            logger.warning(f"Provided data_path does not exist: {data_path}")
+    else:
+        # Try to find the data path automatically
+        # Look for common locations where episodes.jsonl might be
+        possible_data_paths = [
+            Path("/vision/group/behavior"),
+            Path("/kaggle/working/BEHAVIOR-1K/datasets"),
+            behavior_repo_path / "datasets",
+            Path("/kaggle/input/behavior-data"),
+        ]
+        
+        # Check if episodes.jsonl exists in any of these locations
+        found_path = False
+        for base_path in possible_data_paths:
+            test_path = base_path / "2025-challenge-task-instances" / "metadata" / "episodes.jsonl"
+            if test_path.exists():
+                gm.DATA_PATH = str(base_path)
+                logger.info(f"Found and set gm.DATA_PATH to: {gm.DATA_PATH}")
+                found_path = True
+                break
+        
+        if not found_path:
+            # If not found, try to detect based on where metadata might be
+            # User mentioned data at /vision/group/behavior/2025-challenge-demos/meta/
+            # Set DATA_PATH to /vision/group/behavior and let user create the expected structure
+            if Path("/vision/group/behavior").exists():
+                gm.DATA_PATH = "/vision/group/behavior"
+                logger.info(f"Set gm.DATA_PATH to: {gm.DATA_PATH}")
+                logger.warning(
+                    f"The evaluator expects metadata at: "
+                    f"{gm.DATA_PATH}/2025-challenge-task-instances/metadata/episodes.jsonl\n"
+                    f"If your data is in a different location, you may need to:\n"
+                    f"  1. Create the directory structure: mkdir -p {gm.DATA_PATH}/2025-challenge-task-instances/metadata\n"
+                    f"  2. Copy or symlink your episodes.jsonl file there\n"
+                    f"  3. Or set --data_path to point to where the data actually is"
+                )
+    
+    # Verify that the expected file exists, or provide helpful error
+    expected_episodes_file = Path(gm.DATA_PATH) / "2025-challenge-task-instances" / "metadata" / "episodes.jsonl"
+    if not expected_episodes_file.exists():
+        logger.warning(
+            f"Expected episodes.jsonl not found at: {expected_episodes_file}\n"
+            f"This file is required for evaluation. Please ensure it exists or set --data_path correctly."
+        )
     
     # Register resolvers
     register_omegaconf_resolvers()
@@ -679,6 +733,13 @@ def main():
         default="./eval_logs",
         help="Path to save logs and metrics",
     )
+    parser.add_argument(
+        "--data_path",
+        type=str,
+        default=None,
+        help="Path to data directory (should contain 2025-challenge-task-instances/metadata/). "
+             "If not provided, will try to auto-detect.",
+    )
     
     args = parser.parse_args()
     
@@ -705,6 +766,7 @@ def main():
         headless=not args.no_headless,
         write_video=args.write_video,
         log_path=args.log_path,
+        data_path=args.data_path,
     )
     
     # Print results
