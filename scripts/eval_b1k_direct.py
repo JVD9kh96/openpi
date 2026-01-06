@@ -414,12 +414,22 @@ def setup_and_run_evaluation(
         ]
         
         # Check if episodes.jsonl exists in any of these locations
+        # Try both "metadata" and "meta" directory names
         found_path = False
         for base_path in possible_data_paths:
-            test_path = base_path / "2025-challenge-task-instances" / "metadata" / "episodes.jsonl"
-            if test_path.exists():
+            # Try "metadata" first (expected by evaluator)
+            test_path_metadata = base_path / "2025-challenge-task-instances" / "metadata" / "episodes.jsonl"
+            if test_path_metadata.exists():
                 gm.DATA_PATH = str(base_path)
                 logger.info(f"Found and set gm.DATA_PATH to: {gm.DATA_PATH}")
+                found_path = True
+                break
+            
+            # Try "meta" (alternative naming)
+            test_path_meta = base_path / "2025-challenge-task-instances" / "meta" / "episodes.jsonl"
+            if test_path_meta.exists():
+                gm.DATA_PATH = str(base_path)
+                logger.info(f"Found data with 'meta' directory, set gm.DATA_PATH to: {gm.DATA_PATH}")
                 found_path = True
                 break
         
@@ -439,11 +449,59 @@ def setup_and_run_evaluation(
                     f"  3. Or set --data_path to point to where the data actually is"
                 )
     
-    # Verify that the expected file exists, or provide helpful error
-    expected_episodes_file = Path(gm.DATA_PATH) / "2025-challenge-task-instances" / "metadata" / "episodes.jsonl"
-    if not expected_episodes_file.exists():
+    # Verify that the expected file exists, and handle "meta" vs "metadata" naming
+    base_instances_path = Path(gm.DATA_PATH) / "2025-challenge-task-instances"
+    expected_episodes_file = base_instances_path / "metadata" / "episodes.jsonl"
+    alternative_episodes_file = base_instances_path / "meta" / "episodes.jsonl"
+    
+    if expected_episodes_file.exists():
+        logger.info(f"Found episodes.jsonl at expected location: {expected_episodes_file}")
+    elif alternative_episodes_file.exists():
+        # Data is in "meta" but evaluator expects "metadata" - create symlink
+        logger.info(f"Found episodes.jsonl at: {alternative_episodes_file}")
+        logger.info("Creating symlink from 'metadata' to 'meta' for evaluator compatibility...")
+        try:
+            metadata_dir = base_instances_path / "metadata"
+            meta_dir = base_instances_path / "meta"
+            
+            # Create metadata directory if it doesn't exist
+            if not metadata_dir.exists():
+                metadata_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Create symlinks for required files
+            for file_name in ["episodes.jsonl", "test_instances.csv"]:
+                meta_file = meta_dir / file_name
+                metadata_file = metadata_dir / file_name
+                
+                if meta_file.exists() and not metadata_file.exists():
+                    # Create symlink (or copy if symlink fails)
+                    try:
+                        if os.name == 'nt':  # Windows
+                            # On Windows, copy instead of symlink
+                            import shutil
+                            shutil.copy2(meta_file, metadata_file)
+                            logger.info(f"Copied {file_name} from meta to metadata")
+                        else:
+                            os.symlink(meta_file, metadata_file)
+                            logger.info(f"Created symlink for {file_name}")
+                    except Exception as e:
+                        logger.warning(f"Could not create symlink for {file_name}: {e}. Trying copy...")
+                        import shutil
+                        shutil.copy2(meta_file, metadata_file)
+                        logger.info(f"Copied {file_name} from meta to metadata")
+            
+            # Verify the symlink/copy worked
+            if expected_episodes_file.exists():
+                logger.info("Successfully set up metadata directory for evaluator")
+            else:
+                logger.warning(f"Could not create expected file at: {expected_episodes_file}")
+        except Exception as e:
+            logger.warning(f"Could not create symlink/copy from meta to metadata: {e}")
+    else:
         logger.warning(
-            f"Expected episodes.jsonl not found at: {expected_episodes_file}\n"
+            f"Expected episodes.jsonl not found at either:\n"
+            f"  - {expected_episodes_file}\n"
+            f"  - {alternative_episodes_file}\n"
             f"This file is required for evaluation. Please ensure it exists or set --data_path correctly."
         )
     
